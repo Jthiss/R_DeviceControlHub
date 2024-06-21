@@ -1,0 +1,1 @@
+[Quick reference for the ESP32 — MicroPython latest documentation (86x.net)](http://micropython.86x.net/en/latet/esp32/quickref.html)
