@@ -79,7 +79,7 @@ void test_label(lv_timer_t* timer)
 
 void myWiFi_init()
 {
-    WiFi.begin("LAI_5G", "lzbfc009563A-");
+    WiFi.begin("LAI", "lzbfc009563A-");
     Serial.print("Connecting");
     while (WiFi.status() != WL_CONNECTED)
     {
