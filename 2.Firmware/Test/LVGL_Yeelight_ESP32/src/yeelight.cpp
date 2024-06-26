@@ -62,14 +62,14 @@ int Yeelight::feedback() {
     if (len > 0) {
       _packetBuffer[len] = 0;
     }
-    parseFeedback(_packetBuffer, len);
+    parseFeedback(_packetBuffer, len);    //在这里出问题
   }
   return packetSize;
 }
 
 void Yeelight::parseFeedback(char* buffer, size_t len) {
   int i = 0, _i = 0;
-  char _b[255];
+  char _b[255];   
   while (i < len) {
     if (buffer[i] == '\r' && i + 1 <= len && buffer[i + 1] == '\n') {
       _b[_i] = 0;

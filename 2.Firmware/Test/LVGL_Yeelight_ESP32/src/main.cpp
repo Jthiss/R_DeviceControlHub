@@ -59,7 +59,7 @@ static uint32_t my_tick(void)
 
 void Yeelight_Linking()
 {
-    while (!yeelight->feedback()) 
+    while (!yeelight->feedback())   //这里有问题
     {
         yeelight->lookup();
         Serial.printf( "." );
