@@ -7,6 +7,9 @@
 #if LV_USE_TFT_ESPI
 #include <TFT_eSPI.h>
 #endif
+//#include <examples/lv_examples.h>
+#include <demos/lv_demos.h>
+#define LED_PIN 2   //对应的是板上的GPIO
 
 /*Set to your screen resolution and rotation*/
 #define TFT_HOR_RES   240
@@ -59,13 +62,14 @@ static uint32_t my_tick(void)
 
 void Yeelight_Linking()
 {
+    
     while (!yeelight->feedback())   //这里有问题
     {
         yeelight->lookup();
         Serial.printf( "." );
         delay(50);
     }
-    Serial.printf( "\r\nYeelight detected!\r\n" );
+    
 }
 
 void test_label(lv_timer_t* timer)
@@ -101,6 +105,10 @@ void setup()
     Serial.println( LVGL_Arduino );
     myWiFi_init();
 
+    // 设定引脚为输出模式
+    pinMode(LED_PIN, OUTPUT);
+    // 点亮 LED
+    digitalWrite(LED_PIN, HIGH);
 
     /*LVGL Init*/
     lv_init();
@@ -136,7 +144,7 @@ void setup()
      * Or try out a demo. Don't forget to enable the demos in lv_conf.h. E.g. LV_USE_DEMOS_WIDGETS
      * -------------------------------------------------------------------------------------------
      */
-     //lv_demo_widgets();
+    lv_demo_widgets();
 
     label = lv_label_create( lv_screen_active() );
     lv_timer_create(test_label,1000,&LVGL_Arduino);
@@ -154,12 +162,12 @@ void loop()
     {
         Yeelight_Linking();
         initialized = true;
-        inactive = false;
     }
     if(my_toggle1)
     {
         Serial.printf("Yeelight Toggled\r\n");
         Serial.println(yeelight->sendCommand("toggle", "[]"));
+        delay(5000);
     }
 
     if(my_toggle2)

@@ -58,6 +58,7 @@ void Yeelight::lookup() {
 int Yeelight::feedback() {
   int packetSize = _udp.parsePacket();
   if (packetSize) {
+    Serial.printf( "\r\nYeelight detected!\r\n");
     int len = _udp.read(_packetBuffer, 550);
     if (len > 0) {
       _packetBuffer[len] = 0;
@@ -69,7 +70,7 @@ int Yeelight::feedback() {
 
 void Yeelight::parseFeedback(char* buffer, size_t len) {
   int i = 0, _i = 0;
-  char _b[255];   
+  char _b[512];   
   while (i < len) {
     if (buffer[i] == '\r' && i + 1 <= len && buffer[i + 1] == '\n') {
       _b[_i] = 0;
@@ -98,6 +99,7 @@ void Yeelight::parseFeedback(char* buffer, size_t len) {
       _i++;
     }
   }
+  Serial.printf("\r\nYeelight FeedBackBuffer:\r\n=======================\r\n%s\r\n=======================\r\n",buffer);
 }
 
 String Yeelight::sendCommand(String method, String params) {
