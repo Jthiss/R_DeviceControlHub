@@ -2,13 +2,12 @@
 #include <lvgl.h>
 #include <WiFi.h>
 #include <yeelight.h>
+#include <motor.h>
 #if LV_USE_TFT_ESPI
 #include <TFT_eSPI.h>
 #endif
 //#include <examples/lv_examples.h>
 #include <demos/lv_demos.h>
-
-
 
 
 #define LED_PIN 2   //对应的是板上的GPIO

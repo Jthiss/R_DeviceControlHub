@@ -6,22 +6,38 @@
 class Motor {
   private:
     struct MotorParams {
-        uint8_t motorID;    
-        int32_t anglePidKp;  
-        int32_t anglePidKi;  
-        int32_t speedPidKp;  
-        int32_t speedPidKi;  
-        int32_t iqPidKp;     
-        int32_t iqPidKi;     
-        int32_t acceleration;   // 单位1dps/s
-        uint16_t encoder;       //编码器位置
-        uint16_t encoderRaw;    //编码器原始位置
-        uint16_t encoderOffset; //编码器零偏
-        int64_t motorAngle;
-        int16_t circleAngle;
+      uint8_t motorID;    
+      int32_t anglePidKp;  
+      int32_t anglePidKi;  
+      int32_t speedPidKp;  
+      int32_t speedPidKi;  
+      int32_t iqPidKp;     
+      int32_t iqPidKi;     
+      int32_t acceleration;   // 单位1dps/s
+      uint16_t encoder;       //编码器位置
+      uint16_t encoderRaw;    //编码器原始位置
+      uint16_t encoderOffset; //编码器零偏
+      int64_t motorAngle;
+      int16_t circleAngle;
+      int8_t temperature;
+      int16_t powerControl;
+      int16_t speed;
+      int32_t speedControl;
+      int64_t angleControl;
+      int32_t maxSpeed;
+      uint8_t spinDirection;  
+      int32_t angleIncrement;
 
     };
-  
+    struct productInfo
+    {
+      uint8_t driverName[20]; // 驱动名称
+      uint8_t motorName[20]; // 电机名称
+      uint8_t hardwareVersion; // 驱动硬件版本
+      uint8_t firmwareVersion; // 固件版本
+    };
+
+    productInfo motorinfo;
     MotorParams params;
     HardwareSerial& motorserial;
 
@@ -65,7 +81,25 @@ class Motor {
     void sendMotorStop();
     void sendMotorClose();
     bool parseMotorResponse();
+
+    void sendOpenLoopControl(int16_t powerControl);
+    void sendSpeedControl(int32_t speedControl);
+    void sendMultiTurnPositionControl1(int64_t angleControl);
+    void sendMultiTurnPositionControl2(int64_t angleControl, uint32_t maxSpeed);
+    void sendSingleTurnPositionControl1(uint8_t spinDirection, uint16_t angleControl);
+    void sendSingleTurnPositionControl2(uint8_t spinDirection, uint16_t angleControl, uint32_t maxSpeed);
+    void sendIncrementalPositionControl1(int32_t angleIncrement);
+    void sendIncrementalPositionControl2(int32_t angleIncrement, uint32_t maxSpeed);
+    bool parseControlResponse();
     
+
+    void readMotorAndDriverInfo();
+    bool parseDriverReply();
+
+    void sendReadMultiTurnAngle();
+    void sendIncrementalPositionControl3(int32_t angleIncrement, uint32_t maxSpeed);
+    bool parseMotorAngleReply();
+
 };
 
 #endif

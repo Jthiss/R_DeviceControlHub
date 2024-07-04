@@ -1,8 +1,8 @@
 #include "motor.h"
 
-Motor::Motor(HardwareSerial& _motorserial): motorserial(_motorserial) 
+Motor::Motor(HardwareSerial& _motorserial): motorserial(_motorserial), params{}, motorinfo{} 
 {
-    
+  // 其他的初始化操作...
 }
 
 /**
@@ -596,7 +596,9 @@ bool Motor::parseMotorStatus3Response()
 }
 
 
-
+/**
+* @brief 发送关闭命令到电机
+*/
 void Motor::sendMotorClose() 
 {
     // 计算校验和
@@ -610,6 +612,10 @@ void Motor::sendMotorClose()
     motorserial.write(checksum);  // 校验和
 }
 
+/**
+ * @brief 电机运行状态接收（运行、中止、关闭对应回复）
+ * @return true 解析成功，false 解析失败
+ */
 bool Motor::parseMotorResponse()
 {
     if (motorserial.available() >= 5) {
@@ -630,7 +636,9 @@ bool Motor::parseMotorResponse()
     return false;
 }
 
-
+/**
+* @brief 发送中止命令到电机
+*/
 void Motor::sendMotorStop() 
 {
     // 计算校验和
@@ -644,7 +652,9 @@ void Motor::sendMotorStop()
     motorserial.write(checksum);  // 校验和
 }
 
-
+/**
+* @brief 发送运行命令到电机
+*/
 void Motor::sendMotorRun() 
 {
     // 计算校验和
@@ -658,4 +668,359 @@ void Motor::sendMotorRun()
     motorserial.write(checksum);  // 校验和
 }
 
-//开环
+/**
+* @brief 发送开环控制命令到电机
+* @param powerControl 控制电机的开环输出功率，范围为-1000~1000
+*/
+void Motor::sendOpenLoopControl(int16_t powerControl) 
+{
+    // 限制 powerControl 的值范围在 -1000 到 1000 之间
+    if (powerControl <= -1000) 
+    {
+        powerControl = -1000;
+    } else if (powerControl >= 1000) 
+    {
+        powerControl = 1000;
+    }
+
+    params.powerControl = powerControl;  // 更新到类成员中
+
+    uint16_t dataChecksum = params.motorID + 0x02 + (uint8_t)params.powerControl + (uint8_t)(params.powerControl >> 8);
+
+    motorserial.write(0x3E);   // 头字节
+    motorserial.write(0xA0);   // 命令字节
+    motorserial.write(params.motorID);  // ID 字节
+    motorserial.write(0x02);   // 数据长度字节
+    motorserial.write(dataChecksum & 0xFF);  // 帧头校验字节
+    motorserial.write((uint8_t)params.powerControl);  // 输出功率控制值低字节
+    motorserial.write((uint8_t)(params.powerControl >> 8));  // 输出功率控制值高字节
+    motorserial.write((dataChecksum >> 8) & 0xFF);  // 数据校验字节
+}
+
+bool Motor::parseControlResponse() {
+    if (motorserial.available() >= 13) {
+        byte data[13];
+        for (int i = 0; i < 13; i++) {
+            data[i] = motorserial.read();
+        }
+
+        uint16_t headerChecksum = data[0] + data[1] + data[2] + data[3];
+        uint16_t dataChecksum = data[5] + data[6] + data[7] + data[8] + data[9] + data[10] + data[11];
+        dataChecksum += data[4] + data[12];
+
+        if (headerChecksum == (dataChecksum & 0xFF) && ((dataChecksum >> 8) & 0xFF) == data[12]) {
+            params.temperature = data[5];
+            params.powerControl = (int16_t)(data[6] | (data[7] << 8));
+            params.speed = (int16_t)(data[8] | (data[9] << 8));
+            params.encoder = (uint16_t)(data[10] | (data[11] << 8));
+            return true;
+        }
+    }
+    return false;
+}
+
+void Motor::sendSpeedControl(int32_t speedControl) {
+    params.speedControl = speedControl;
+    uint16_t dataChecksum = params.motorID + 0x04;
+    dataChecksum += (uint8_t)speedControl;
+    dataChecksum += *((uint8_t *)(&params.speedControl) + 1);
+    dataChecksum += *((uint8_t *)(&params.speedControl) + 2);
+    dataChecksum += *((uint8_t *)(&params.speedControl) + 3);
+
+    motorserial.write(0x3E);  // 头字节
+    motorserial.write(0xA2);  // 命令字节
+    motorserial.write(params.motorID);  // ID 字节
+    motorserial.write(0x04);  // 数据长度字节
+    motorserial.write(dataChecksum & 0xFF);  // 帧头校验字节
+    motorserial.write((uint8_t)params.speed);  // 电机速度低字节
+    motorserial.write(*((uint8_t *)(&params.speedControl) + 1));  // 电机速度
+    motorserial.write(*((uint8_t *)(&params.speedControl) + 2));  // 电机速度
+    motorserial.write(*((uint8_t *)(&params.speedControl) + 3));  // 电机速度高字节
+    motorserial.write((dataChecksum >> 8) & 0xFF);  // 数据校验字节
+}
+
+
+void Motor::sendMultiTurnPositionControl1(int64_t angleControl) {
+    params.angleControl = angleControl;
+    uint8_t data[14];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xA3; // 命令字节
+    data[2] = params.motorID; // ID 字节，这里假设使用结构体中的motorID
+    data[3] = 0x08; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+    // 设置位置控制字节
+    for (int i = 0; i < 8; i++) {
+        data[5 + i] = *((uint8_t *)(&params.angleControl) + i);
+    }
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 14; i++) {
+        checksum += data[i];
+    }
+    data[13] = checksum;
+
+    // 发送数据，这里假设有一个send函数用于发送data数组中的数据
+    motorserial.write(data, 14);
+}
+
+
+void Motor::sendMultiTurnPositionControl2(int64_t angleControl, uint32_t maxSpeed) {
+    params.angleControl = angleControl;
+    params.maxSpeed = maxSpeed;
+    uint8_t data[18];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xA4; // 命令字节
+    data[2] = params.motorID; // ID 字节，假设使用结构体中的motorID
+    data[3] = 0x0C; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+    // 设置位置控制字节
+    for (int i = 0; i < 8; i++) {
+        data[5 + i] = *((uint8_t *)(&params.angleControl) + i);
+    }
+
+    // 设置速度限制字节
+    for (int i = 0; i < 4; i++) {
+        data[13 + i] = *((uint8_t *)(&params.maxSpeed) + i);
+    }
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 17; i++) {
+        checksum += data[i];
+    }
+    data[17] = checksum;
+
+    // 发送数据
+    motorserial.write(data, 18);
+}
+
+
+void Motor::sendSingleTurnPositionControl1(uint8_t spinDirection, uint16_t angleControl) {
+    params.spinDirection = spinDirection;
+    params.angleControl = angleControl;
+    uint8_t data[10];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xA5; // 命令字节
+    data[2] = params.motorID; // ID 字节，假设使用结构体中的motorID
+    data[3] = 0x04; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+    
+    data[5] = params.spinDirection; // 转动方向字节
+    data[6] = *((uint8_t *)(&params.angleControl)); // 位置控制低字节
+    data[7] = *((uint8_t *)(&params.angleControl)+1); // 位置控制高字节
+    data[8] = 0x00; // NULL字节
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 9; i++) {
+        checksum += data[i];
+    }
+    data[9] = checksum;
+
+    // 发送数据
+    motorserial.write(data, 10);
+}
+
+
+void Motor::sendSingleTurnPositionControl2(uint8_t spinDirection, uint16_t angleControl, uint32_t maxSpeed) {
+    params.spinDirection = spinDirection;
+    params.angleControl = angleControl;
+    params.maxSpeed = maxSpeed;
+    uint8_t data[14];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xA6; // 命令字节
+    data[2] = params.motorID; // ID 字节，假设使用结构体中的motorID
+    data[3] = 0x08; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+    data[5] = params.spinDirection; // 转动方向字节
+    data[6] = *((uint8_t *)(&params.angleControl)); // 位置控制低字节
+    data[7] = *((uint8_t *)(&params.angleControl)+1); // 位置控制高字节
+    data[8] = 0x00; // NULL字节
+
+    // 设置速度限制字节
+    for (int i = 0; i < 4; i++) {
+        data[9 + i] = *((uint8_t *)(&params.maxSpeed) + i);
+    }
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 13; i++) {
+        checksum += data[i];
+    }
+    data[13] = checksum;
+
+    // 发送数据
+    motorserial.write(data, 14);
+}
+
+
+void Motor::sendIncrementalPositionControl1(int32_t angleIncrement) {
+    params.angleIncrement = angleIncrement;
+    uint8_t data[10];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xA7; // 命令字节
+    data[2] = params.motorID; // ID 字节，假设使用结构体中的motorID
+    data[3] = 0x04; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+    // 设置增量位置控制字节
+    for (int i = 0; i < 4; i++) {
+        data[5 + i] = *((uint8_t *)(&params.angleIncrement ) + i);
+    }
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 9; i++) {
+        checksum += data[i];
+    }
+    data[9] = checksum;
+
+    // 发送数据
+    motorserial.write(data, 10);
+}
+
+void Motor::sendIncrementalPositionControl2(int32_t angleIncrement, uint32_t maxSpeed) {
+    params.angleIncrement = angleIncrement;
+    params.maxSpeed = maxSpeed;
+    uint8_t data[14];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xA8; // 命令字节
+    data[2] = params.motorID; // ID 字节，假设使用结构体中的motorID
+    data[3] = 0x08; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+    // 设置增量位置控制字节
+    for (int i = 0; i < 4; i++) {
+        data[5 + i] = *((uint8_t *)(&params.angleIncrement) + i);
+    }
+
+    // 设置速度限制字节
+    for (int i = 0; i < 4; i++) {
+        data[9 + i] = *((uint8_t *)(&params.maxSpeed) + i);
+    }
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 13; i++) {
+        checksum += data[i];
+    }
+    data[13] = checksum;
+
+    // 发送数据
+    motorserial.write(data, 14);
+}
+
+void Motor::readMotorAndDriverInfo() {
+   uint8_t data[5];
+   data[0] = 0x3E; // 头字节
+   data[1] = 0x12; // 命令字节
+   data[2] = params.motorID; // ID 字节
+   data[3] = 0x00; // 数据长度字节
+   data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+   // 发送数据
+   motorserial.write(data, 5);
+}
+
+bool Motor::parseDriverReply() {
+    if (motorserial.available() >= 48) {
+        byte data[48];
+        for (int i = 0; i < 48; i++) {
+            data[i] = motorserial.read();
+        }
+        // 校验帧头
+        uint8_t checksum = 0;
+        for (int i = 0; i < 4; i++) {
+            checksum += data[i];
+        }
+        if (checksum == data[4]) {
+            // 数据校验
+            // 提取驱动设备信息
+            memcpy(motorinfo.driverName, &data[5], 20);
+            memcpy(motorinfo.motorName, &data[25], 20);
+            motorinfo.hardwareVersion = data[45];
+            motorinfo.firmwareVersion = data[46];
+
+            // 使用解析出的驱动设备信息进行业务逻辑处理
+            // ...
+            return true;
+        }
+
+        
+    }
+    return false;
+}
+
+// 读取多圈角度命令
+void Motor::sendReadMultiTurnAngle() {
+    uint8_t data[5];
+    data[0] = 0x3E;  // 头字节
+    data[1] = 0xC2;  // 命令字节
+    data[2] = params.motorID;    // ID 字节
+    data[3] = 0x00;  // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3];  // 帧头校验字节
+
+    // 发送数据
+    motorserial.write(data, 5);
+}
+
+//
+void Motor::sendIncrementalPositionControl3(int32_t angleIncrement, uint32_t maxSpeed) {
+    params.angleIncrement = angleIncrement;
+    params.maxSpeed = maxSpeed;
+    uint8_t data[14];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0xD8; // 命令字节
+    data[2] = params.motorID; // ID字节，假设motorID为要发送的电机ID
+    data[3] = 0x07; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+
+    // 设置增量位置控制字节
+    for (int i = 0; i < 4; i++) {
+        data[5 + i] = *((uint8_t *)(&params.angleIncrement) + i);
+    }
+
+    // 设置速度限制字节
+    for (int i = 0; i < 4; i++) {
+        data[9 + i] = *((uint8_t *)(&params.maxSpeed) + i);
+    }
+
+    // 数据校验字节
+    uint8_t checksum = 0;
+    for (int i = 5; i < 13; i++) {
+        checksum += data[i];
+    }
+    data[13] = checksum;
+
+    // 发送数据
+    motorserial.write(data, 14);
+}
+
+// 解析驱动回复帧的数据
+bool Motor::parseMotorAngleReply() {
+    if (motorserial.available() >= 14) {
+        byte data[14];
+        for (int i = 0; i < 14; i++) {
+            data[i] = motorserial.read();
+        }
+        // 校验帧头
+        uint8_t checksum = 0;
+        for (int i = 0; i < 4; i++) {
+            checksum += data[i];
+        }
+        if (checksum == data[4]) {
+            // 数据校验成功
+            return true;
+        }
+
+        
+
+        // 可以在这里对 motorAngle 进行进一步处理
+        // ...
+
+    }
+}
