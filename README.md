@@ -1,5 +1,5 @@
 # R_DeviceControlHub
-通过WiFi、FOC、CAN、LCD实现的智能设备控制按钮（个人兴趣项目）
+通过WiFi、FOC、CAN/RS485、LCD实现的智能设备控制按钮（个人兴趣项目）
 
 ----
 
