@@ -2,6 +2,12 @@
     "files.associations": {
         "lv_examples.h": "c",
         "lv_animimage.h": "c",
-        "lv_snapshot.h": "c"
+        "lv_snapshot.h": "c",
+        "*.tcc": "cpp",
+        "istream": "cpp",
+        "streambuf": "cpp",
+        "tuple": "cpp",
+        "memory": "cpp",
+        "sstream": "cpp"
     }
 }

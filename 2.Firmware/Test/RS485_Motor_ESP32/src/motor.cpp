@@ -3,12 +3,13 @@
 Motor::Motor(HardwareSerial& _motorserial): motorserial(_motorserial), params{}, motorinfo{} 
 {
   // 其他的初始化操作...
+  params.motorID = 0x01;
 }
 
 /**
 * @brief  读取 PID 参数命令
 * 主机发送该命令读取当前电机的 PID 的参数
-* 数据域 说明 数据
+* 数据域 说明 数据  
 * DATA[0] 头字节 0x3E
 * DATA[1] 命令字节 0x30
 * DATA[2] ID 字节 0x01~0x20
@@ -196,7 +197,7 @@ void Motor::readEncoderPosition()
 
 
 /**
- * @brief 从收到的数据中解析编码器参数
+ * @brief 从收到的数据中解析编码器参数---可以用來作爲旋鈕
  * @return true 解析成功，false 解析失败
  */
 bool Motor::parseEncoderData() 
@@ -209,29 +210,42 @@ bool Motor::parseEncoderData()
        for (int i = 0; i < 12; i++) 
        {
            data[i] = motorserial.read();
+           Serial.printf("%x ",data[i]);
        }
+       Serial.printf("\r\n");
 
        // 计算校验和
-       uint16_t checksum = 0;
+       uint16_t checksum1 = 0;
        for (int i = 0; i < 4; i++) 
        {
-           checksum += data[i];
+           checksum1 += data[i];
+           
        }
+       //Serial.printf("%x ",checksum1);
+       uint16_t checksum2 = 0;
        for (int i = 5; i < 11; i++) 
        {
-           checksum += data[i];
+           checksum2 += data[i];
        }
+       checksum2 &= 0xFF;
+       //Serial.printf("%x ",checksum2);
 
        // 验证校验和并解析数据
-       if (checksum == (data[4] + (data[11] << 8))) 
+       if ((checksum1 == data[4])&&(checksum2 == data[11] )) 
        {
            // 解析编码器参数
            params.encoder = data[5] | (data[6] << 8);
            params.encoderRaw = data[7] | (data[8] << 8);
            params.encoderOffset = data[9] | (data[10] << 8);
+           Serial.printf("位置 = %x  %d \r\n",params.encoder,params.encoder);
+           Serial.printf("原始位置 = %x  %d \r\n",params.encoderRaw,params.encoderRaw);
+           Serial.printf("零偏 = %x  %d\r\n",params.encoderOffset,params.encoderOffset);
+           //motorserial.printf("S!\r\n");
            return true;  // 解析成功
+           
        }
    }
+   //Serial.printf("F!\r\n");
    return false;  // 解析失败
 }
 
@@ -290,15 +304,14 @@ bool Motor::parseEncoderZeroOffsetResponse() {
  */
 void Motor::writeEncoderInitialPositionToROM() 
 {
-    // 计算校验和
-    uint8_t checksum = 0x3E + 0x19 + params.motorID + 0x00;
-
     // 发送命令
-    motorserial.write(0x3E);      // 头字节
-    motorserial.write(0x19);      // 命令字节
-    motorserial.write(params.motorID);   // ID字节
-    motorserial.write(0x00);      // 数据长度字节
-    motorserial.write(checksum);  // 校验和
+    uint8_t data[5];
+    data[0] = 0x3E; // 头字节
+    data[1] = 0x19; // 命令字节
+    data[2] = params.motorID; // ID 字节
+    data[3] = 0x00; // 数据长度字节
+    data[4] = data[0] + data[1] + data[2] + data[3]; // 帧头校验字节
+    motorserial.write(data,5);
 }
 
 
@@ -352,10 +365,12 @@ bool Motor::parseMultiTurnAngleResponse()
 {
     if (motorserial.available() >= 14) 
     {
+
         uint8_t data[14];
         for (int i = 0; i < 14; i++) 
         {
             data[i] = motorserial.read();
+            Serial.printf("%x ",data[i]);
         }
 
         // 检查帧头校验
@@ -373,12 +388,26 @@ bool Motor::parseMultiTurnAngleResponse()
             motorAngle |= ((int64_t)data[11] << 48);
             motorAngle |= ((int64_t)data[12] << 56);
 
+            //当角度差大于某个正值/小于某个负值时才更新旧值（当前编码值未越过当前区间不更新）
+            if((motorAngle - params.motorAngle_old)>50||(motorAngle - params.motorAngle_old)<-50)
+                params.motorAngle_old = params.motorAngle;
             params.motorAngle = motorAngle;
+            Serial.printf("motorAngle_old = %lld ,motorAngle = %lld \r\n",params.motorAngle_old,params.motorAngle);
             return true;
         }
     }
     return false;
 }
+
+uint8_t Motor::checkVolume(int scale)
+{
+    if((params.motorAngle - params.motorAngle_old) >scale)
+        return 1;
+    else if((params.motorAngle - params.motorAngle_old) <-scale)
+        return 2;
+    else
+        return 0;
+} 
 
 
 /**
@@ -928,7 +957,7 @@ void Motor::readMotorAndDriverInfo() {
 
 bool Motor::parseDriverReply() {
     if (motorserial.available() >= 48) {
-        byte data[48];
+        uint8_t data[48];
         for (int i = 0; i < 48; i++) {
             data[i] = motorserial.read();
         }
@@ -1003,7 +1032,7 @@ void Motor::sendIncrementalPositionControl3(int32_t angleIncrement, uint32_t max
 // 解析驱动回复帧的数据
 bool Motor::parseMotorAngleReply() {
     if (motorserial.available() >= 14) {
-        byte data[14];
+        uint8_t data[14];
         for (int i = 0; i < 14; i++) {
             data[i] = motorserial.read();
         }
@@ -1014,6 +1043,7 @@ bool Motor::parseMotorAngleReply() {
         }
         if (checksum == data[4]) {
             // 数据校验成功
+
             return true;
         }
 
@@ -1023,4 +1053,5 @@ bool Motor::parseMotorAngleReply() {
         // ...
 
     }
+    return false;
 }
