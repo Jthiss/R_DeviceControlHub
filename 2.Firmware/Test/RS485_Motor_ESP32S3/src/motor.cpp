@@ -372,11 +372,13 @@ bool Motor::parseMultiTurnAngleResponse()
             data[i] = motorserial.read();
             Serial.printf("%x ",data[i]);
         }
+        Serial.printf("\r\n");
 
         // 检查帧头校验
         uint8_t checksum = data[0] + data[1] + data[2] + data[3];
-
-        if (checksum == data[4]) 
+        Serial.printf("checksum =%x  data[4] = %x\r\n",checksum,data[4]);
+        if (checksum == data[4]&&0xFF) 
+        // if(1)
         {
             int64_t motorAngle = 0;
             motorAngle |= data[5];

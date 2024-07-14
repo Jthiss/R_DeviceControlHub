@@ -129,7 +129,7 @@ void setup()
 
     LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
 
-    Serial.begin( 115200 );
+    Serial.begin(115200);
     //Serial.println( LVGL_Arduino );
 
     Serial2.begin(115200);  //用于RS485通讯
@@ -177,7 +177,7 @@ void setup()
 
     /*Initialize the (dummy) input device driver*/
     lv_indev_t * indev = lv_indev_create();
-    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER); /*Touchpad should have POINTER type*/
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);    /*Touchpad should have POINTER type*/
     lv_indev_set_read_cb(indev, my_touchpad_read);
 
     //lv_example_btn_1();
@@ -193,7 +193,7 @@ void setup()
 
     /* Yeelight Search */
     yeelight->lookup();
-    Serial.printf( "Yeelight Looking" );
+    Serial.printf("Yeelight Looking");
     
 }
 
