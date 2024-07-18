@@ -43,7 +43,7 @@ class Motor {
     HardwareSerial& motorserial;
 
   public:
-    Motor(HardwareSerial& _motorserial = Serial2);
+    Motor(HardwareSerial& _motorserial = Serial1);
 
     bool readPIDParamsFrame();
     void readPIDParams();

@@ -19,7 +19,6 @@
 #define TFT_HOR_RES   240
 #define TFT_VER_RES   240
 #define TFT_ROTATION  LV_DISPLAY_ROTATION_1
-
 /*LVGL draw into this buffer, 1/10 screen size usually works well. The size is in bytes*/
 #define DRAW_BUF_SIZE (TFT_HOR_RES * TFT_VER_RES / 10 * (LV_COLOR_DEPTH / 8))
 
@@ -43,7 +42,7 @@ int my_toggle3 = 0;  //...
 int new_bright = 50;    //亮度---后续用foc电机输入控制
 uint8_t sys_status = 1;
 uint8_t mission_flag = 0;
-uint8_t volume_flag = 0;
+uint8_t volume_flag = 1;
 
 
 void my_print( lv_log_level_t level, const char * buf );
@@ -72,7 +71,7 @@ void setup()
     //Serial.println( LVGL_Arduino );
 
     //用于RS485通讯对应串口
-    Serial2.begin(115200);  
+    Serial1.begin(115200);  
 
     //配置蓝牙
     bleKeyboard.begin();
@@ -148,6 +147,7 @@ void loop()
         else if(volume_status==2)
             bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
         volume_flag = 0;
+        Serial.printf("test_v\r\n");
     }
     
     // if (!initialized) 
