@@ -1,5 +1,9 @@
-.pio 
-!.pio/libdeps/esp32s3/lvgl_conf.h 
+.pio/build
+.pio/libdeps/esp32s3/TFT_eSPI
+.pio/libdeps/esp32s3/lvgl
+.pio/libdeps/esp32s3/ESP32 BLE Keyboard
+.pio/libdeps/esp32s3/ArduinoJson
+.pio/libdeps/esp32s3/Adafruit NeoPixel
 !.pio/libdeps/esp32s3/TFT_eSPI/User_Setup_Select.h 
 !.pio/libdeps/esp32s3/TFT_eSPI/My_Setup_GC9A01_ESP32.h 
 .vscode/.browse.c_cpp.db* 
