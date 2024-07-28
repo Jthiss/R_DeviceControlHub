@@ -5,27 +5,31 @@
 #include <Adafruit_NeoPixel.h>
 #include <yeelight.h>
 #include <motor.h>
-#if LV_USE_TFT_ESPI
+#include <Wire.h>
+#include <INA226.h>
+#if 1
 #include <TFT_eSPI.h>
 #endif
 //#include <examples/lv_examples.h>
 #include <demos/lv_demos.h>
+#include <gui_guider.h>
+#include <custom.h>
+#include <events_init.h>
 
 #define LED_PIN 48   //对应的是板上的WS2812
 #define LED_NUM  1   //WS2812数量
 
 
-/*Set to your screen resolution and rotation*/
-#define TFT_HOR_RES   240
-#define TFT_VER_RES   240
-#define TFT_ROTATION  LV_DISPLAY_ROTATION_1
-/*LVGL draw into this buffer, 1/10 screen size usually works well. The size is in bytes*/
-#define DRAW_BUF_SIZE (TFT_HOR_RES * TFT_VER_RES / 10 * (LV_COLOR_DEPTH / 8))
-
+/*Change to your screen resolution*/
+static const uint16_t screenWidth  = 240;
+static const uint16_t screenHeight = 240;
+static lv_disp_draw_buf_t draw_buf;
+static lv_color_t buf[ screenWidth * 10 ];
 
 
 /*User value*/
-// TFT_eSPI tft = TFT_eSPI(); 
+INA226 ina(Wire);
+lv_ui guider_ui;
 Adafruit_NeoPixel pixels(LED_NUM, LED_PIN, NEO_GRB + NEO_KHZ800);
 BleKeyboard bleKeyboard = BleKeyboard("My Esp32BLE");
 lv_obj_t *label;
@@ -33,7 +37,7 @@ Yeelight* yeelight = new Yeelight();
 Motor* rmd_s = new Motor();
 hw_timer_t * timer = NULL;
 hw_timer_t * timer_ble = NULL;
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
+TFT_eSPI tft = TFT_eSPI(screenWidth, screenHeight); /* TFT instance */
 String LVGL_Arduino = "Hello Arduino! ";
 int64_t i=0;
 int my_toggle1 = 0;  //触发事件1标志位
@@ -43,19 +47,18 @@ int new_bright = 50;    //亮度---后续用foc电机输入控制
 uint8_t sys_status = 1;
 uint8_t mission_flag = 0;
 uint8_t volume_flag = 1;
+uint8_t count_flag = 0;
 
 
-void my_print( lv_log_level_t level, const char * buf );
-void my_disp_flush( lv_display_t *disp, const lv_area_t *area, uint8_t * px_map);
-static uint32_t my_tick(void);
-void my_touchpad_read( lv_indev_t * indev, lv_indev_data_t * data );
+
 void Yeelight_Linking();
 void test_label(lv_timer_t* timer);
 void myWiFi_init();
 void timer_interrupt();
 void timer_ble_interrupt();
 void My_LVGL_Init();
-
+void INA226_Init();
+void INA226_Read();
 
 void setup()
 {
@@ -76,6 +79,9 @@ void setup()
     //配置蓝牙
     bleKeyboard.begin();
 
+    //配置INA
+    INA226_Init();
+
     // 初始化定时器
     timer = timerBegin(0,80,true);
     timer_ble = timerBegin(1,80,true);
@@ -89,15 +95,12 @@ void setup()
 
     //配置LVGL
     My_LVGL_Init();
-
-    label = lv_label_create( lv_screen_active() );
-    lv_timer_create(test_label,1000,&LVGL_Arduino);
-    Serial.printf( "LVGL Setup done\r\n" );
+    
 
     /* Yeelight Search */
     yeelight->lookup();
     Serial.printf( "Yeelight Looking" );
-    
+    Serial.printf("FreeHeap = %dbytes \r\nHeapSize = %dbytes \r\nPsramSize = %dbytes \r\nSketchSize = %dbytes \r\n", ESP.getFreeHeap(),ESP.getHeapSize(),ESP.getPsramSize(),ESP.getSketchSize());
 }
 
 void mission1()
@@ -133,6 +136,12 @@ void loop()
         //判断任务标志位：（後續多任務改爲switch）
         //發送讀取編碼器指令
         rmd_s->readMultiTurnAngle();
+        count_flag++;
+        if(count_flag == 5)
+        {
+            INA226_Read();  //每1s读取一次电源情况
+            count_flag = 0;
+        }
         mission_flag = 0;
     }
 
@@ -143,11 +152,17 @@ void loop()
         //---但30以内是不行的，编码器数据有波动，实际导致音量变太多是因为读取太多次，就是定时器时间太短）
         uint8_t volume_status = rmd_s->checkVolume(70);                                                       
         if(volume_status==1)
+        {
             bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
+            Serial.printf("KEY_MEDIA_VOLUME_UP\r\n");
+        }  
         else if(volume_status==2)
+        {
             bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
+            Serial.printf("KEY_MEDIA_VOLUME_DOWN\r\n");
+        }
         volume_flag = 0;
-        Serial.printf("test_v\r\n");
+        // Serial.printf("test_v\r\n");
     }
     
     // if (!initialized) 
@@ -188,26 +203,55 @@ void loop()
 
 
 #if LV_USE_LOG != 0
-void my_print( lv_log_level_t level, const char * buf )
+/* Serial debugging */
+void my_print(const char * buf)
 {
-    LV_UNUSED(level);
-    Serial.println(buf);
+    Serial.printf(buf);
     Serial.flush();
 }
 #endif
 
-/* LVGL calls it when a rendered image needs to copied to the display*/
-void my_disp_flush( lv_display_t *disp, const lv_area_t *area, uint8_t * px_map)
+/* Display flushing */
+void my_disp_flush( lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p )
 {
-    /*Call it to tell LVGL you are ready*/
-    lv_display_flush_ready(disp);
+    uint32_t w = ( area->x2 - area->x1 + 1 );
+    uint32_t h = ( area->y2 - area->y1 + 1 );
+
+    tft.startWrite();
+    tft.setAddrWindow( area->x1, area->y1, w, h );
+    tft.pushColors( ( uint16_t * )&color_p->full, w * h, true );
+    tft.endWrite();
+
+    lv_disp_flush_ready( disp );
 }
 
-/*use Arduinos millis() as tick source*/
-static uint32_t my_tick(void)
+/*
+void my_touchpad_read( lv_indev_drv_t * indev_driver, lv_indev_data_t * data )
 {
-    return millis();
+    uint16_t touchX, touchY;
+
+    bool touched = tft.getTouch( &touchX, &touchY, 600 );
+
+    if( !touched )
+    {
+        data->state = LV_INDEV_STATE_REL;
+    }
+    else
+    {
+        data->state = LV_INDEV_STATE_PR;
+
+
+        data->point.x = touchX;
+        data->point.y = touchY;
+
+        Serial.print( "Data x " );
+        Serial.println( touchX );
+
+        Serial.print( "Data y " );
+        Serial.println( touchY );
+    }
 }
+*/
 
 
 void Yeelight_Linking()
@@ -267,50 +311,186 @@ void timer_ble_interrupt(){
 
 void My_LVGL_Init()
 {
-    /*LVGL Init*/
     lv_init();
 
-    /*Set a tick source so that LVGL will know how much time elapsed. */
-    lv_tick_set_cb(my_tick);
 
-    /* register print function for debugging */
 #if LV_USE_LOG != 0
-    lv_log_register_print_cb( my_print );
+    lv_log_register_print_cb( my_print ); /* register print function for debugging */
 #endif
 
-    lv_display_t * disp;
-#if LV_USE_TFT_ESPI
-    /*TFT_eSPI can be enabled lv_conf.h to initialize the display in a simple way*/
-    disp = lv_tft_espi_create(TFT_HOR_RES, TFT_VER_RES, draw_buf, sizeof(draw_buf));
-#else
-    /*Else create a display yourself*/
-    disp = lv_display_create(TFT_HOR_RES, TFT_VER_RES);
-    lv_display_set_flush_cb(disp, my_disp_flush);
-    lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
-#endif
+    tft.begin();          /* TFT init */
+    tft.setRotation( 0 ); /* Landscape orientation, flipped */
+    /*Set the touchscreen calibration data,
+     the actual data for your display can be acquired using
+     the Generic -> Touch_calibrate example from the TFT_eSPI library*/
+   // uint16_t calData[5] = { 275, 3620, 264, 3532, 1 };
+   // tft.setTouch( calData );
+
+    lv_disp_draw_buf_init( &draw_buf, buf, NULL, screenWidth * 10 );
+
+    /*Initialize the display*/
+    static lv_disp_drv_t disp_drv;
+    lv_disp_drv_init( &disp_drv );
+    /*Change the following line to your display resolution*/
+    disp_drv.hor_res = screenWidth;
+    disp_drv.ver_res = screenHeight;
+    disp_drv.flush_cb = my_disp_flush;
+    disp_drv.draw_buf = &draw_buf;
+    lv_disp_drv_register( &disp_drv );
 
     /*Initialize the (dummy) input device driver*/
-    lv_indev_t * indev = lv_indev_create();
-    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER); /*Touchpad should have POINTER type*/
-    lv_indev_set_read_cb(indev, my_touchpad_read);
+    //static lv_indev_drv_t indev_drv;
+    //lv_indev_drv_init( &indev_drv );
+    //indev_drv.type = LV_INDEV_TYPE_POINTER;
+    //indev_drv.read_cb = my_touchpad_read;
+    //lv_indev_drv_register( &indev_drv );
 
-    /* Create a simple label
-     * ---------------------
-     lv_obj_t *label = lv_label_create( lv_scr_act() );
-     lv_label_set_text( label, "Hello Arduino, I'm LVGL!" );
-     lv_obj_align( label, LV_ALIGN_CENTER, 0, 0 );
+#if 1
 
-     * Try an example. See all the examples
-     *  - Online: https://docs.lvgl.io/master/examples.html
-     *  - Source codes: https://github.com/lvgl/lvgl/tree/master/examples
-     * ----------------------------------------------------------------
+    setup_ui(&guider_ui);
+    events_init(&guider_ui);
+    custom_init(&guider_ui);
+    /* Create simple label */
+   /* lv_obj_t *label = lv_label_create( lv_scr_act() );
+    lv_label_set_text( label, LVGL_Arduino.c_str() );
+    lv_obj_align( label, LV_ALIGN_CENTER, 0, 0 );*/
+#else
+    /* Try an example from the lv_examples Arduino library
+       make sure to include it as written above.
+    lv_example_btn_1();
+   */
 
-     lv_example_btn_1();
+    // uncomment one of these demos
+    lv_demo_widgets();            // OK
+    // lv_demo_benchmark();          // OK
+    // lv_demo_keypad_encoder();     // works, but I haven't an encoder
+    // lv_demo_music();              // NOK
+    // lv_demo_printer();
+    // lv_demo_stress();             // seems to be OK
+#endif
+    Serial.println( "LVGL Setup done" );
+}
 
-     * Or try out a demo. Don't forget to enable the demos in lv_conf.h. E.g. LV_USE_DEMOS_WIDGETS
-     * -------------------------------------------------------------------------------------------
 
-     lv_demo_widgets();
-     */
-    lv_demo_widgets();
+void checkConfig()
+{
+  Serial.print("Mode:                  ");
+  switch (ina.getMode())
+  {
+    case INA226_MODE_POWER_DOWN:      Serial.println("Power-Down"); break;
+    case INA226_MODE_SHUNT_TRIG:      Serial.println("Shunt Voltage, Triggered"); break;
+    case INA226_MODE_BUS_TRIG:        Serial.println("Bus Voltage, Triggered"); break;
+    case INA226_MODE_SHUNT_BUS_TRIG:  Serial.println("Shunt and Bus, Triggered"); break;
+    case INA226_MODE_ADC_OFF:         Serial.println("ADC Off"); break;
+    case INA226_MODE_SHUNT_CONT:      Serial.println("Shunt Voltage, Continuous"); break;
+    case INA226_MODE_BUS_CONT:        Serial.println("Bus Voltage, Continuous"); break;
+    case INA226_MODE_SHUNT_BUS_CONT:  Serial.println("Shunt and Bus, Continuous"); break;
+    default: Serial.println("unknown");
+  }
+  
+  Serial.print("Samples average:       ");
+  switch (ina.getAverages())
+  {
+    case INA226_AVERAGES_1:           Serial.println("1 sample"); break;
+    case INA226_AVERAGES_4:           Serial.println("4 samples"); break;
+    case INA226_AVERAGES_16:          Serial.println("16 samples"); break;
+    case INA226_AVERAGES_64:          Serial.println("64 samples"); break;
+    case INA226_AVERAGES_128:         Serial.println("128 samples"); break;
+    case INA226_AVERAGES_256:         Serial.println("256 samples"); break;
+    case INA226_AVERAGES_512:         Serial.println("512 samples"); break;
+    case INA226_AVERAGES_1024:        Serial.println("1024 samples"); break;
+    default: Serial.println("unknown");
+  }
+
+  Serial.print("Bus conversion time:   ");
+  switch (ina.getBusConversionTime())
+  {
+    case INA226_BUS_CONV_TIME_140US:  Serial.println("140uS"); break;
+    case INA226_BUS_CONV_TIME_204US:  Serial.println("204uS"); break;
+    case INA226_BUS_CONV_TIME_332US:  Serial.println("332uS"); break;
+    case INA226_BUS_CONV_TIME_588US:  Serial.println("558uS"); break;
+    case INA226_BUS_CONV_TIME_1100US: Serial.println("1.100ms"); break;
+    case INA226_BUS_CONV_TIME_2116US: Serial.println("2.116ms"); break;
+    case INA226_BUS_CONV_TIME_4156US: Serial.println("4.156ms"); break;
+    case INA226_BUS_CONV_TIME_8244US: Serial.println("8.244ms"); break;
+    default: Serial.println("unknown");
+  }
+
+  Serial.print("Shunt conversion time: ");
+  switch (ina.getShuntConversionTime())
+  {
+    case INA226_SHUNT_CONV_TIME_140US:  Serial.println("140uS"); break;
+    case INA226_SHUNT_CONV_TIME_204US:  Serial.println("204uS"); break;
+    case INA226_SHUNT_CONV_TIME_332US:  Serial.println("332uS"); break;
+    case INA226_SHUNT_CONV_TIME_588US:  Serial.println("558uS"); break;
+    case INA226_SHUNT_CONV_TIME_1100US: Serial.println("1.100ms"); break;
+    case INA226_SHUNT_CONV_TIME_2116US: Serial.println("2.116ms"); break;
+    case INA226_SHUNT_CONV_TIME_4156US: Serial.println("4.156ms"); break;
+    case INA226_SHUNT_CONV_TIME_8244US: Serial.println("8.244ms"); break;
+    default: Serial.println("unknown");
+  }
+  
+  Serial.print("Max possible current:  ");
+  Serial.print(ina.getMaxPossibleCurrent());
+  Serial.println(" A");
+
+  Serial.print("Max current:           ");
+  Serial.print(ina.getMaxCurrent());
+  Serial.println(" A");
+
+  Serial.print("Max shunt voltage:     ");
+  Serial.print(ina.getMaxShuntVoltage());
+  Serial.println(" V");
+
+  Serial.print("Max power:             ");
+  Serial.print(ina.getMaxPower());
+  Serial.println(" W");
+}
+
+void INA226_Init()
+{
+    Wire.begin(13 ,14);
+    // Default INA226 address is 0x40
+    bool success = ina.begin();
+    // Check if the connection was successful, stop if not
+    if(!success)
+    {
+        Serial.println("INA226 Connection error");
+        while(1);
+    }
+    // Configure INA226
+    ina.configure(INA226_AVERAGES_1, INA226_BUS_CONV_TIME_1100US, INA226_SHUNT_CONV_TIME_1100US, INA226_MODE_SHUNT_BUS_CONT);
+
+    // Calibrate INA226. Rshunt = 0.01 ohm, Max excepted current = 4A
+    ina.calibrate(0.01, 4);
+
+    // Display configuration
+    checkConfig();
+
+    Serial.println("-----------------------------------------------");
+}
+
+void INA226_Read()
+{
+    Serial.print("Bus voltage:   ");
+    char Bus_voltage[10];
+    sprintf(Bus_voltage,"%.5f",ina.readBusVoltage());
+    strcat(Bus_voltage," V");
+    Serial.printf("%s\r\n",Bus_voltage);
+    lv_event_send(guider_ui.screen_label_1,LV_EVENT_VALUE_CHANGED,Bus_voltage);
+
+    Serial.print("Bus power:     ");
+    Serial.print(ina.readBusPower(), 5);
+    Serial.println(" W");
+
+
+    Serial.print("Shunt voltage: ");
+    Serial.print(ina.readShuntVoltage(), 5);
+    Serial.println(" V");
+
+    Serial.print("Shunt current: ");
+    Serial.print(ina.readShuntCurrent(), 5);
+    Serial.println(" A");
+
+    Serial.println("");
 }

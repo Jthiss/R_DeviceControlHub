@@ -8,6 +8,7 @@
         "streambuf": "cpp",
         "tuple": "cpp",
         "memory": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "lvgl.h": "c"
     }
 }
