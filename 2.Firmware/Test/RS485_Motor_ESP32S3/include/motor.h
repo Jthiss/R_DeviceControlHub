@@ -17,8 +17,8 @@ class Motor {
       uint16_t encoder;       //编码器位置
       uint16_t encoderRaw;    //编码器原始位置
       uint16_t encoderOffset; //编码器零偏
-      int64_t motorAngle;
-      int64_t motorAngle_old;
+      int64_t motorAngle = 0;
+      int64_t motorAngle_old = 0;
       int16_t circleAngle;
       int8_t temperature;
       int16_t powerControl;

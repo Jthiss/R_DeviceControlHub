@@ -9,6 +9,16 @@
         "tuple": "cpp",
         "memory": "cpp",
         "sstream": "cpp",
-        "lvgl.h": "c"
+        "lvgl.h": "c",
+        "new": "cpp",
+        "array": "cpp",
+        "deque": "cpp",
+        "list": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "unordered_set": "cpp",
+        "vector": "cpp",
+        "string_view": "cpp",
+        "random": "cpp"
     }
 }

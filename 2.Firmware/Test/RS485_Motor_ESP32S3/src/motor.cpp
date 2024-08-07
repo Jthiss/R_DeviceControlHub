@@ -391,7 +391,7 @@ bool Motor::parseMultiTurnAngleResponse()
             motorAngle |= ((int64_t)data[12] << 56);
 
             //当角度差大于某个正值/小于某个负值时才更新旧值（当前编码值未越过当前区间不更新）
-            if((motorAngle - params.motorAngle_old)>50||(motorAngle - params.motorAngle_old)<-50)
+            if((motorAngle - params.motorAngle_old)>30||(motorAngle - params.motorAngle_old)<-30)
                 params.motorAngle_old = params.motorAngle;
             params.motorAngle = motorAngle;
             // Serial.printf("motorAngle_old = %lld ,motorAngle = %lld \r\n",params.motorAngle_old,params.motorAngle);
